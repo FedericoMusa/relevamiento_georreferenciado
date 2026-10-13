@@ -1,4 +1,4 @@
-const CACHE_NAME = 'relevamiento-v2';
+const CACHE_NAME = 'relevamiento-v3';
 const RECURSOS = [
   './',
   './index.html',

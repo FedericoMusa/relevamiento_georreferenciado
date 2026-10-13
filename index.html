@@ -43,7 +43,7 @@
       margin: 0 auto 60px auto;
     }
 
-    /* Barra Superior de Control */
+    /* Barra Superior */
     .top-bar {
       position: sticky;
       top: 8px;
@@ -466,7 +466,7 @@
       align-items: center;
     }
 
-    /* REGLAS DE IMPRESIÓN LIMPIA / PDF TÉCNICO */
+    /* Impresión Técnica Limpia */
     @media print {
       body {
         background: #ffffff !important;
@@ -617,10 +617,38 @@
     let ptoRastreadoId = null;
     let ultimaLecturaTemp = null;
 
+    // SANITIZACIÓN Y SEGURIDAD DOM
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function esDataUrlSegura(url) {
+      return typeof url === 'string' && url.startsWith('data:image/jpeg;base64,');
+    }
+
+    // PERSISTENCIA DE ALMACENAMIENTO (Protección contra purgas del SO)
+    async function solicitarPersistenciaAlmacenamiento() {
+      if (navigator.storage && navigator.storage.persist) {
+        const persistido = await navigator.storage.persist();
+        if (!persistido && navigator.storage.persisted) {
+          navigator.storage.persisted();
+        }
+      }
+    }
+
     function inicializar() {
+      solicitarPersistenciaAlmacenamiento();
+
       try {
         const raw = localStorage.getItem(STORAGE_KEY_LIST);
         catalogo = raw ? JSON.parse(raw) : {};
+        if (typeof catalogo !== 'object' || catalogo === null) catalogo = {};
       } catch (e) {
         catalogo = {};
       }
@@ -646,7 +674,7 @@
     }
 
     function convertirADMS(val, esLat) {
-      if (isNaN(val) || val === null || val === '') return '';
+      if (typeof val !== 'number' || isNaN(val)) return '';
       const abs = Math.abs(val);
       const grados = Math.floor(abs);
       const minTotales = (abs - grados) * 60;
@@ -745,45 +773,45 @@
         puntoEl.className = 'punto-card';
         puntoEl.id = `card_${pto.id}`;
 
-        const tieneCoords = pto.coords && pto.coords.lat !== null;
-        const dmsTexto = tieneCoords ? `${pto.coords.dmsLat} | ${pto.coords.dmsLng}` : 'Sin coordenadas satelitales fijadas';
+        const tieneCoords = pto.coords && typeof pto.coords.lat === 'number' && typeof pto.coords.lng === 'number';
+        const dmsTexto = tieneCoords ? `${escapeHtml(pto.coords.dmsLat)} | ${escapeHtml(pto.coords.dmsLng)}` : 'Sin coordenadas satelitales fijadas';
         const decTexto = tieneCoords ? `Lat: ${pto.coords.lat}, Lng: ${pto.coords.lng} (±${pto.coords.prec} m)` : '';
 
         puntoEl.innerHTML = `
           <div class="punto-header">
             <div style="display:flex; align-items:center; gap:8px; flex:1;">
               <span class="punto-id-tag">#${idx + 1}</span>
-              <input type="text" class="punto-name-input" value="${pto.nombre}" placeholder="Identificador del punto" oninput="actualizarNombrePunto('${pto.id}', this.value)">
+              <input type="text" class="punto-name-input" value="${escapeHtml(pto.nombre)}" placeholder="Identificador del punto" oninput="actualizarNombrePunto('${escapeHtml(pto.id)}', this.value)">
             </div>
-            <button type="button" class="btn-danger btn-sm no-print" onclick="eliminarPunto('${pto.id}', '${pto.nombre.replace(/'/g, "\\'")}')">Eliminar</button>
+            <button type="button" class="btn-danger btn-sm no-print" onclick="eliminarPunto('${escapeHtml(pto.id)}', '${escapeHtml(pto.nombre).replace(/'/g, "\\'")}')">Eliminar</button>
           </div>
 
           <div class="gnss-box">
-            <div id="display_${pto.id}" class="coord-display-inner">
+            <div id="display_${escapeHtml(pto.id)}" class="coord-display-inner">
               <div class="coord-value">${dmsTexto}</div>
               <div class="coord-meta">${decTexto}</div>
             </div>
-            <div id="gps_controls_${pto.id}" class="no-print" style="display:flex; gap:6px;">
-              <button type="button" onclick="iniciarCapturaGPS('${pto.id}')">📍 Sincronizar GPS</button>
+            <div id="gps_controls_${escapeHtml(pto.id)}" class="no-print" style="display:flex; gap:6px;">
+              <button type="button" onclick="iniciarCapturaGPS('${escapeHtml(pto.id)}')">📍 Sincronizar GPS</button>
             </div>
           </div>
 
           <div class="field" style="margin-bottom:12px;">
             <label>Descripción / Observación Técnica</label>
-            <textarea placeholder="Detalle técnico del punto..." oninput="actualizarNotasPunto('${pto.id}', this.value)">${pto.notas || ''}</textarea>
+            <textarea placeholder="Detalle técnico del punto..." oninput="actualizarNotasPunto('${escapeHtml(pto.id)}', this.value)">${escapeHtml(pto.notas || '')}</textarea>
           </div>
 
           <div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <label style="margin:0;">Registro Fotográfico (${pto.fotos.length})</label>
               <div class="no-print" style="display:flex; gap:6px;">
-                <button type="button" onclick="document.getElementById('input_cam_${pto.id}').click()">📸 Cámara</button>
-                <button type="button" onclick="document.getElementById('input_mult_${pto.id}').click()">Galería</button>
+                <button type="button" onclick="document.getElementById('input_cam_${escapeHtml(pto.id)}').click()">📸 Cámara</button>
+                <button type="button" onclick="document.getElementById('input_mult_${escapeHtml(pto.id)}').click()">Galería</button>
               </div>
-              <input type="file" id="input_cam_${pto.id}" accept="image/*" capture="environment" style="display:none;" onchange="procesarFotosPunto(event, '${pto.id}')">
-              <input type="file" id="input_mult_${pto.id}" accept="image/*" multiple style="display:none;" onchange="procesarFotosPunto(event, '${pto.id}')">
+              <input type="file" id="input_cam_${escapeHtml(pto.id)}" accept="image/*" capture="environment" style="display:none;" onchange="procesarFotosPunto(event, '${escapeHtml(pto.id)}')">
+              <input type="file" id="input_mult_${escapeHtml(pto.id)}" accept="image/*" multiple style="display:none;" onchange="procesarFotosPunto(event, '${escapeHtml(pto.id)}')">
             </div>
-            <div id="mosaico_${pto.id}" class="photo-mosaic"></div>
+            <div id="mosaico_${escapeHtml(pto.id)}" class="photo-mosaic"></div>
           </div>
         `;
         container.appendChild(puntoEl);
@@ -797,13 +825,1010 @@
       mosaico.innerHTML = '';
 
       pto.fotos.forEach((foto) => {
+        if (!esDataUrlSegura(foto.dataUrl)) return;
+
         const thumb = document.createElement('div');
         thumb.className = 'photo-card';
         thumb.innerHTML = `
-          <button type="button" class="btn-del-photo no-print" onclick="eliminarFotoPunto('${pto.id}', '${foto.id}')">✕</button>
+          <button type="button" class="btn-del-photo no-print" onclick="eliminarFotoPunto('${escapeHtml(pto.id)}', '${escapeHtml(foto.id)}')">✕</button>
           <img src="${foto.dataUrl}" class="photo-img" alt="Registro">
-          <textarea class="photo-desc" placeholder="Nota de la foto..." oninput="actualizarDescFoto('${pto.id}', '${foto.id}', this.value)">${foto.desc || ''}</textarea>
+          <textarea class="photo-desc" placeholder="Nota de la foto..." oninput="actualizarDescFoto('${escapeHtml(pto.id)}', '${escapeHtml(foto.id)}', this.value)">${escapeHtml(foto.desc || '')}</textarea>
         `;
+        mosaico.appendChild(thumb);
+      });
+    }
+
+    function actualizarNombrePunto(ptoId, valor) {
+      const p = planillaActual.puntos.find(x => x.id === ptoId);
+      if (p) { p.nombre = valor; guardarActual(); }
+    }
+
+    function actualizarNotasPunto(ptoId, valor) {
+      const p = planillaActual.puntos.find(x => x.id === ptoId);
+      if (p) { p.notas = valor; guardarActual(); }
+    }
+
+    function actualizarDescFoto(ptoId, fotoId, valor) {
+      const p = planillaActual.puntos.find(x => x.id === ptoId);
+      if (p) {
+        const f = p.fotos.find(x => x.id === fotoId);
+        if (f) { f.desc = valor; guardarActual(); }
+      }
+    }
+
+    function eliminarFotoPunto(ptoId, fotoId) {
+      const p = planillaActual.puntos.find(x => x.id === ptoId);
+      if (p) {
+        p.fotos = p.fotos.filter(x => x.id !== fotoId);
+        renderizarMosaicoFotos(p);
+        guardarActual();
+      }
+    }
+
+    function detenerRastreoGPS() {
+      if (gpsWatcherId !== null) {
+        navigator.geolocation.clearWatch(gpsWatcherId);
+        gpsWatcherId = null;
+      }
+      if (ptoRastreadoId)Para mitigar completamente los riesgos identificados, se aplican cuatro intervenciones directas sobre la arquitectura y el código:
+
+1. **Eliminación de vectores XSS (DOM-based):** Se implementa una función de escape HTML estricta (`escapeHTML`) y asignación controlada mediante propiedades de texto (`value`, `textContent`) para evitar que la importación de JSON maliciosos ejecute código arbitrario vía `innerHTML`.
+2. **Mitigación de pérdida de datos por purga del sistema (`navigator.storage.persist`):** Se solicita permiso de almacenamiento persistente al navegador al inicializar la app, evitando que Android o iOS borren la memoria local por inactividad o falta de espacio.
+3. **Validación de esquema y estructura en la importación:** La función de carga valida que el JSON cumpla con la estructura de campos requerida antes de montarlo en memoria, descartando cargas corruptas o payloads alterados.
+4. **Alerta temprana de cuota de almacenamiento:** Control estricto de excepciones `QuotaExceededError` con aviso visible en la interfaz para que el operador exporte un respaldo antes de perder información.
+
+A continuación tenés el archivo `index.html` completo con las mitigaciones implementadas:
+
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Relevamiento Georreferenciado Offline</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #cbd5e1;
+      --border-subtle: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --primary: #0f172a;
+      --primary-hover: #1e293b;
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --accent-light: #e0f2fe;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --danger-light: #fef2f2;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 14px 10px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 940px;
+      margin: 0 auto 60px auto;
+    }
+
+    .top-bar {
+      position: sticky;
+      top: 8px;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--success);
+      border-radius: 50%;
+    }
+
+    .offline-tag {
+      font-size: 11px;
+      background: #f1f5f9;
+      color: #475569;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    button, .file-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 11px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      transition: all 0.15s ease;
+      text-decoration: none;
+      user-select: none;
+    }
+
+    button:hover, .file-label:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+
+    .btn-dark {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    .btn-dark:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-accent {
+      background: var(--accent-light);
+      color: var(--accent-hover);
+      border-color: #bae6fd;
+    }
+
+    .btn-accent:hover {
+      background: #bae6fd;
+    }
+
+    .btn-warning {
+      background: #fffbeb;
+      color: var(--warning);
+      border-color: #fde68a;
+    }
+
+    .btn-warning:hover {
+      background: #fef3c7;
+    }
+
+    .btn-danger {
+      background: var(--danger-light);
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+
+    .btn-danger:hover {
+      background: #fee2e2;
+    }
+
+    .header-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    }
+
+    .header-title-box {
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .main-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .timestamp-tag {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    input[type="text"], input[type="date"], textarea {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 13.5px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--text);
+      transition: border-color 0.15s ease;
+    }
+
+    input[type="text"]:focus, input[type="date"]:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 55px;
+    }
+
+    .punto-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    }
+
+    .punto-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 12px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .punto-id-tag {
+      font-size: 12px;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: #334155;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .punto-name-input {
+      font-size: 14.5px;
+      font-weight: 600;
+      border: 1px solid var(--border-subtle);
+      padding: 5px 8px;
+      border-radius: 5px;
+      min-width: 220px;
+    }
+
+    .punto-name-input:focus {
+      border-color: var(--accent);
+      background: #ffffff;
+    }
+
+    .gnss-box {
+      background: #f8fafc;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .coord-display-inner {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .coord-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12.5px;
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    .coord-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .photo-mosaic {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .photo-card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px;
+      position: relative;
+    }
+
+    .photo-img {
+      width: 100%;
+      height: 130px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #cbd5e1;
+      margin-bottom: 6px;
+    }
+
+    .photo-desc {
+      font-size: 11.5px;
+      padding: 4px 6px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      width: 100%;
+      min-height: 40px;
+    }
+
+    .btn-del-photo {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(15, 23, 42, 0.75);
+      color: #ffffff;
+      border: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .btn-del-photo:hover {
+      background: var(--danger);
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(2px);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      padding: 12px;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #ffffff;
+      border-radius: 10px;
+      width: 100%;
+      max-width: 600px;
+      max-height: 82vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    }
+
+    .modal-header {
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14.5px;
+      font-weight: 700;
+    }
+
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      font-size: 18px;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 2px 6px;
+    }
+
+    .modal-body {
+      padding: 12px;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .list-entry {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      background: #ffffff;
+      gap: 10px;
+    }
+
+    .list-entry:hover {
+      border-color: var(--accent);
+      background: #f8fafc;
+    }
+
+    .entry-main-info {
+      flex: 1;
+      cursor: pointer;
+    }
+
+    .entry-title {
+      font-weight: 600;
+      font-size: 13.5px;
+    }
+
+    .entry-meta {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .entry-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    @media print {
+      body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+      }
+
+      .container {
+        max-width: 100% !important;
+        margin: 0 !important;
+      }
+
+      .top-bar, .modal-overlay, .no-print, .btn-del-photo, button {
+        display: none !important;
+      }
+
+      .header-card, .punto-card {
+        border: 1px solid #94a3b8 !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+        margin-bottom: 14px !important;
+        padding: 12px !important;
+      }
+
+      input[type="text"], input[type="date"], textarea {
+        border: none !important;
+        padding: 0 !important;
+        background: transparent !important;
+        color: #000000 !important;
+        box-shadow: none !important;
+      }
+
+      input::placeholder, textarea::placeholder {
+        color: transparent !important;
+      }
+
+      .gnss-box {
+        background: transparent !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 6px 8px !important;
+      }
+
+      .photo-img {
+        max-height: 150px !important;
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+  <link rel="manifest" href="./manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js');
+    }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="top-bar no-print">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="status-badge">
+          <span class="status-dot"></span>
+          <span id="save-status">Listo</span>
+        </div>
+        <span class="offline-tag">GNSS / POSGAR OFFLINE</span>
+      </div>
+      <div class="btn-group">
+        <button type="button" onclick="abrirModalListado()">📂 Relevamientos (<span id="total-count-btn">0</span>)</button>
+        <button type="button" class="btn-dark" onclick="crearNuevoRelevamiento()">➕ Nuevo</button>
+        <button type="button" class="btn-accent" onclick="exportarGeoJSON()">🌍 GeoJSON</button>
+        <button type="button" onclick="exportarJSON()">💾 JSON</button>
+        <label class="file-label">
+          📥 Cargar
+          <input type="file" id="importFile" accept=".json,.geojson" onchange="importarArchivo(event)" style="display:none;">
+        </label>
+        <button type="button" onclick="window.print()">🖨️ PDF</button>
+      </div>
+    </div>
+
+    <div class="header-card">
+      <div class="header-title-box">
+        <div id="bannerTituloRelevamiento" class="main-title">Relevamiento Técnico</div>
+        <div id="bannerTimestamp" class="timestamp-tag"></div>
+      </div>
+      <div class="grid grid-2" style="margin-bottom: 12px;">
+        <div class="field">
+          <label for="lugar_nombre">Lugar / Instalación</label>
+          <input type="text" id="lugar_nombre" placeholder="Identificación del sitio" oninput="actualizarTituloRelevamiento()">
+        </div>
+        <div class="field">
+          <label for="fecha_relevamiento">Fecha</label>
+          <input type="date" id="fecha_relevamiento" onchange="guardarActual()">
+        </div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="operador_responsable">Responsable de Inspección</label>
+          <input type="text" id="operador_responsable" placeholder="Nombre del inspector" oninput="guardarActual()">
+        </div>
+        <div class="field">
+          <label for="obs_generales">Observaciones Generales</label>
+          <textarea id="obs_generales" placeholder="Notas operativas, accesos, estado general..." oninput="guardarActual()"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div id="puntosContainer"></div>
+
+    <div style="text-align: center; margin: 24px 0;" class="no-print">
+      <button type="button" class="btn-dark" style="padding: 10px 22px; font-size: 14px;" onclick="agregarNuevoPunto()">
+        📍 Agregar Punto de Inspección
+      </button>
+    </div>
+  </div>
+
+  <div id="modalListado" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>Relevamientos Almacenados en Memoria</span>
+        <button type="button" class="modal-close-btn" onclick="cerrarModalListado()">✕</button>
+      </div>
+      <div class="modal-body" id="listaRelevamientos"></div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY_LIST = 'relevamientos_georref_catalogo_v1';
+    const STORAGE_KEY_ACTIVE = 'relevamientos_georref_active_id_v1';
+
+    let catalogo = {};
+    let activeId = null;
+    let planillaActual = {
+      id: '',
+      titulo: '',
+      lugar: '',
+      fecha: '',
+      operador: '',
+      observaciones: '',
+      ultimaModif: '',
+      timestamp: 0,
+      puntos: []
+    };
+
+    let gpsWatcherId = null;
+    let ptoRastreadoId = null;
+    let ultimaLecturaTemp = null;
+
+    // MITIGACIÓN XSS: Escape estricto de entidades HTML
+    function escapeHTML(str) {
+      if (typeof str !== 'string') return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // MITIGACIÓN XSS PARA ATRIBUTOS DATA-URL
+    function sanitizarDataUrl(url) {
+      if (typeof url === 'string' && url.startsWith('data:image/jpeg;base64,')) {
+        return url;
+      }
+      return '';
+    }
+
+    // MITIGACIÓN DE PÉRDIDA DE DATOS: Solicitar persistencia al sistema operativo
+    async function solicitarAlmacenamientoPersistente() {
+      if (navigator.storage && navigator.storage.persist) {
+        const persistente = await navigator.storage.persist();
+        if (!persistente) {
+          console.warn('El navegador no garantizó persistencia absoluta; mantener backups periódicos.');
+        }
+      }
+    }
+
+    function inicializar() {
+      solicitarAlmacenamientoPersistente();
+
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_LIST);
+        catalogo = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        catalogo = {};
+      }
+
+      actualizarContadorBoton();
+
+      activeId = localStorage.getItem(STORAGE_KEY_ACTIVE);
+      if (activeId && catalogo[activeId]) {
+        cargarPlanilla(activeId);
+      } else {
+        const keys = Object.keys(catalogo);
+        if (keys.length > 0) {
+          cargarPlanilla(keys[0]);
+        } else {
+          crearNuevoRelevamiento(false);
+        }
+      }
+    }
+
+    function obtenerTimestampLegible(d = new Date()) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())} hs`;
+    }
+
+    function convertirADMS(val, esLat) {
+      if (typeof val !== 'number' || isNaN(val)) return '';
+      const abs = Math.abs(val);
+      const grados = Math.floor(abs);
+      const minTotales = (abs - grados) * 60;
+      const minutos = Math.floor(minTotales);
+      const segundos = ((minTotales - minutos) * 60).toFixed(2);
+      const hemisferio = esLat ? (val >= 0 ? 'N' : 'S') : (val >= 0 ? 'E' : 'O');
+      return `${grados}° ${minutos}' ${segundos}" ${hemisferio}`;
+    }
+
+    function actualizarTituloRelevamiento() {
+      const lugar = document.getElementById('lugar_nombre').value.trim();
+      planillaActual.titulo = lugar !== '' ? `Relevamiento: ${lugar}` : `Relevamiento (${obtenerTimestampLegible()})`;
+      document.getElementById('bannerTituloRelevamiento').textContent = planillaActual.titulo;
+      guardarActual();
+    }
+
+    function crearNuevoRelevamiento(confirmar = true) {
+      if (confirmar && !confirm('¿Deseas iniciar un nuevo relevamiento en blanco? El actual quedará guardado.')) {
+        return;
+      }
+      detenerRastreoGPS();
+      const now = new Date();
+      activeId = 'rel_' + Date.now();
+      localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
+
+      planillaActual = {
+        id: activeId,
+        titulo: `Relevamiento (${obtenerTimestampLegible(now)})`,
+        lugar: '',
+        fecha: now.toISOString().split('T')[0],
+        operador: '',
+        observaciones: '',
+        ultimaModif: obtenerTimestampLegible(now),
+        timestamp: now.getTime(),
+        puntos: [crearEstructuraPunto(1)]
+      };
+
+      poblarUIPlanilla();
+      guardarActual();
+      document.getElementById('lugar_nombre').focus();
+    }
+
+    function crearEstructuraPunto(numero) {
+      return {
+        id: 'pto_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        nombre: `Punto ${numero}`,
+        coords: { lat: null, lng: null, prec: null, dmsLat: '', dmsLng: '' },
+        notas: '',
+        fotos: []
+      };
+    }
+
+    function agregarNuevoPunto() {
+      const proximo = planillaActual.puntos.length + 1;
+      const nuevo = crearEstructuraPunto(proximo);
+      planillaActual.puntos.push(nuevo);
+      renderizarPuntos();
+      guardarActual();
+
+      setTimeout(() => {
+        const el = document.getElementById(`card_${nuevo.id}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 80);
+    }
+
+    function eliminarPunto(puntoId, nombrePunto) {
+      if (confirm(`¿Eliminar definitivamente "${nombrePunto}" con sus fotos y coordenadas?`)) {
+        if (ptoRastreadoId === puntoId) detenerRastreoGPS();
+        planillaActual.puntos = planillaActual.puntos.filter(p => p.id !== puntoId);
+        renderizarPuntos();
+        guardarActual();
+      }
+    }
+
+    function poblarUIPlanilla() {
+      document.getElementById('bannerTituloRelevamiento').textContent = planillaActual.titulo;
+      document.getElementById('bannerTimestamp').textContent = `Modificado: ${planillaActual.ultimaModif}`;
+      document.getElementById('lugar_nombre').value = planillaActual.lugar || '';
+      document.getElementById('fecha_relevamiento').value = planillaActual.fecha || '';
+      document.getElementById('operador_responsable').value = planillaActual.operador || '';
+      document.getElementById('obs_generales').value = planillaActual.observaciones || '';
+      renderizarPuntos();
+    }
+
+    function renderizarPuntos() {
+      const container = document.getElementById('puntosContainer');
+      container.innerHTML = '';
+
+      if (planillaActual.puntos.length === 0) {
+        const vacio = document.createElement('div');
+        vacio.style.cssText = 'text-align:center; padding:20px; color:var(--text-muted); background:#ffffff; border-radius:8px; border:1px solid var(--border);';
+        vacio.textContent = 'No hay puntos agregados. Presiona "Agregar Punto de Inspección".';
+        container.appendChild(vacio);
+        return;
+      }
+
+      planillaActual.puntos.forEach((pto, idx) => {
+        const puntoEl = document.createElement('div');
+        puntoEl.className = 'punto-card';
+        puntoEl.id = `card_${pto.id}`;
+
+        const tieneCoords = pto.coords && pto.coords.lat !== null;
+        const dmsTexto = tieneCoords ? `${pto.coords.dmsLat} | ${pto.coords.dmsLng}` : 'Sin coordenadas satelitales fijadas';
+        const decTexto = tieneCoords ? `Lat: ${pto.coords.lat}, Lng: ${pto.coords.lng} (±${pto.coords.prec} m)` : '';
+
+        // Construcción segura del encabezado
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'punto-header';
+
+        const titleBox = document.createElement('div');
+        titleBox.style.cssText = 'display:flex; align-items:center; gap:8px; flex:1;';
+
+        const tag = document.createElement('span');
+        tag.className = 'punto-id-tag';
+        tag.textContent = `#${idx + 1}`;
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'punto-name-input';
+        nameInput.value = pto.nombre || '';
+        nameInput.placeholder = 'Identificador del punto';
+        nameInput.oninput = (e) => actualizarNombrePunto(pto.id, e.target.value);
+
+        titleBox.appendChild(tag);
+        titleBox.appendChild(nameInput);
+
+        const btnEliminar = document.createElement('button');
+        btnEliminar.type = 'button';
+        btnEliminar.className = 'btn-danger btn-sm no-print';
+        btnEliminar.textContent = 'Eliminar';
+        btnEliminar.onclick = () => eliminarPunto(pto.id, pto.nombre);
+
+        headerDiv.appendChild(titleBox);
+        headerDiv.appendChild(btnEliminar);
+        puntoEl.appendChild(headerDiv);
+
+        // Bloque GNSS
+        const gnssBox = document.createElement('div');
+        gnssBox.className = 'gnss-box';
+
+        const dispInner = document.createElement('div');
+        dispInner.id = `display_${pto.id}`;
+        dispInner.className = 'coord-display-inner';
+
+        const coordVal = document.createElement('div');
+        coordVal.className = 'coord-value';
+        coordVal.textContent = dmsTexto;
+
+        const coordMeta = document.createElement('div');
+        coordMeta.className = 'coord-meta';
+        coordMeta.textContent = decTexto;
+
+        dispInner.appendChild(coordVal);
+        dispInner.appendChild(coordMeta);
+
+        const gpsControls = document.createElement('div');
+        gpsControls.id = `gps_controls_${pto.id}`;
+        gpsControls.className = 'no-print';
+        gpsControls.style.display = 'flex';
+        gpsControls.style.gap = '6px';
+
+        const btnSync = document.createElement('button');
+        btnSync.type = 'button';
+        btnSync.textContent = '📍 Sincronizar GPS';
+        btnSync.onclick = () => iniciarCapturaGPS(pto.id);
+        gpsControls.appendChild(btnSync);
+
+        gnssBox.appendChild(dispInner);
+        gnssBox.appendChild(gpsControls);
+        puntoEl.appendChild(gnssBox);
+
+        // Campo Notas
+        const fieldNotas = document.createElement('div');
+        fieldNotas.className = 'field';
+        fieldNotas.style.marginBottom = '12px';
+
+        const labelNotas = document.createElement('label');
+        labelNotas.textContent = 'Descripción / Observación Técnica';
+
+        const txtNotas = document.createElement('textarea');
+        txtNotas.placeholder = 'Detalle técnico del punto...';
+        txtNotas.value = pto.notas || '';
+        txtNotas.oninput = (e) => actualizarNotasPunto(pto.id, e.target.value);
+
+        fieldNotas.appendChild(labelNotas);
+        fieldNotas.appendChild(txtNotas);
+        puntoEl.appendChild(fieldNotas);
+
+        // Bloque Fotos
+        const photoSection = document.createElement('div');
+        const photoHeader = document.createElement('div');
+        photoHeader.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;';
+
+        const labelFotos = document.createElement('label');
+        labelFotos.style.margin = '0';
+        labelFotos.textContent = `Registro Fotográfico (${pto.fotos.length})`;
+
+        const photoActions = document.createElement('div');
+        photoActions.className = 'no-print';
+        photoActions.style.display = 'flex';
+        photoActions.style.gap = '6px';
+
+        const btnCam = document.createElement('button');
+        btnCam.type = 'button';
+        btnCam.textContent = '📸 Cámara';
+        btnCam.onclick = () => document.getElementById(`input_cam_${pto.id}`).click();
+
+        const btnGal = document.createElement('button');
+        btnGal.type = 'button';
+        btnGal.textContent = 'Galería';
+        btnGal.onclick = () => document.getElementById(`input_mult_${pto.id}`).click();
+
+        photoActions.appendChild(btnCam);
+        photoActions.appendChild(btnGal);
+        photoHeader.appendChild(labelFotos);
+        photoHeader.appendChild(photoActions);
+
+        const inCam = document.createElement('input');
+        inCam.type = 'file';
+        inCam.id = `input_cam_${pto.id}`;
+        inCam.accept = 'image/*';
+        inCam.capture = 'environment';
+        inCam.style.display = 'none';
+        inCam.onchange = (e) => procesarFotosPunto(e, pto.id);
+
+        const inGal = document.createElement('input');
+        inGal.type = 'file';
+        inGal.id = `input_mult_${pto.id}`;
+        inGal.accept = 'image/*';
+        inGal.multiple = true;
+        inGal.style.display = 'none';
+        inGal.onchange = (e) => procesarFotosPunto(e, pto.id);
+
+        const mosaic = document.createElement('div');
+        mosaic.id = `mosaico_${pto.id}`;
+        mosaic.className = 'photo-mosaic';
+
+        photoSection.appendChild(photoHeader);
+        photoSection.appendChild(inCam);
+        photoSection.appendChild(inGal);
+        photoSection.appendChild(mosaic);
+        puntoEl.appendChild(photoSection);
+
+        container.appendChild(puntoEl);
+        renderizarMosaicoFotos(pto);
+      });
+    }
+
+    function renderizarMosaicoFotos(pto) {
+      const mosaico = document.getElementById(`mosaico_${pto.id}`);
+      if (!mosaico) return;
+      mosaico.innerHTML = '';
+
+      pto.fotos.forEach((foto) => {
+        const safeUrl = sanitizarDataUrl(foto.dataUrl);
+        if (!safeUrl) return;
+
+        const thumb = document.createElement('div');
+        thumb.className = 'photo-card';
+
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.className = 'btn-del-photo no-print';
+        btnDel.textContent = '✕';
+        btnDel.onclick = () => eliminarFotoPunto(pto.id, foto.id);
+
+        const img = document.createElement('img');
+        img.className = 'photo-img';
+        img.alt = 'Registro técnico';
+        img.src = safeUrl;
+
+        const txtDesc = document.createElement('textarea');
+        txtDesc.className = 'photo-desc';
+        txtDesc.placeholder = 'Nota de la foto...';
+        txtDesc.value = foto.desc || '';
+        txtDesc.oninput = (e) => actualizarDescFoto(pto.id, foto.id, e.target.value);
+
+        thumb.appendChild(btnDel);
+        thumb.appendChild(img);
+        thumb.appendChild(txtDesc);
         mosaico.appendChild(thumb);
       });
     }
@@ -843,7 +1868,13 @@
       if (ptoRastreadoId) {
         const ctrl = document.getElementById(`gps_controls_${ptoRastreadoId}`);
         if (ctrl) {
-          ctrl.innerHTML = `<button type="button" onclick="iniciarCapturaGPS('${ptoRastreadoId}')">📍 Sincronizar GPS</button>`;
+          ctrl.innerHTML = '';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = '📍 Sincronizar GPS';
+          const targetId = ptoRastreadoId;
+          btn.onclick = () => iniciarCapturaGPS(targetId);
+          ctrl.appendChild(btn);
         }
       }
       ptoRastreadoId = null;
@@ -853,7 +1884,7 @@
 
     function iniciarCapturaGPS(ptoId) {
       if (!('geolocation' in navigator)) {
-        alert('Este dispositivo no soporta geolocalización.');
+        alert('Este dispositivo no soporta geolocalización satelital.');
         return;
       }
 
@@ -865,17 +1896,36 @@
       const ctrlEl = document.getElementById(`gps_controls_${ptoId}`);
 
       if (displayEl) {
-        displayEl.innerHTML = `
-          <div class="coord-value" style="color:var(--warning);">Conectando con receptor GNSS...</div>
-          <div class="coord-meta">Mantener equipo con visual despejada hacia el cielo.</div>
-        `;
+        displayEl.innerHTML = '';
+        const v = document.createElement('div');
+        v.className = 'coord-value';
+        v.style.color = 'var(--warning)';
+        v.textContent = 'Conectando con receptor GNSS...';
+        const m = document.createElement('div');
+        m.className = 'coord-meta';
+        m.textContent = 'Mantener equipo con visual despejada hacia el cielo.';
+        displayEl.appendChild(v);
+        displayEl.appendChild(m);
       }
 
       if (ctrlEl) {
-        ctrlEl.innerHTML = `
-          <button type="button" id="btn_forzar_${ptoId}" class="btn-warning" style="display:none;" onclick="fijarLecturaManual('${ptoId}')">Fijar actual</button>
-          <button type="button" class="btn-danger" onclick="detenerRastreoGPS()">Cancelar</button>
-        `;
+        ctrlEl.innerHTML = '';
+        const btnForzar = document.createElement('button');
+        btnForzar.type = 'button';
+        btnForzar.id = `btn_forzar_${ptoId}`;
+        btnForzar.className = 'btn-warning';
+        btnForzar.style.display = 'none';
+        btnForzar.textContent = 'Fijar actual';
+        btnForzar.onclick = () => fijarLecturaManual(ptoId);
+
+        const btnCancelar = document.createElement('button');
+        btnCancelar.type = 'button';
+        btnCancelar.className = 'btn-danger';
+        btnCancelar.textContent = 'Cancelar';
+        btnCancelar.onclick = () => detenerRastreoGPS();
+
+        ctrlEl.appendChild(btnForzar);
+        ctrlEl.appendChild(btnCancelar);
       }
 
       const opcionesGPS = {
@@ -899,11 +1949,17 @@
 
           const disp = document.getElementById(`display_${ptoId}`);
           if (disp) {
-            const colorPrec = prec <= 15 ? 'var(--success)' : (prec <= 30 ? 'var(--warning)' : 'var(--danger)');
-            disp.innerHTML = `
-              <div class="coord-value">${dmsLat} | ${dmsLng}</div>
-              <div class="coord-meta" style="color:${colorPrec}; font-weight:600;">Precisión estimada: ±${prec} m ${prec <= 15 ? '(Óptima)' : '(Esperando mejor señal...)'}</div>
-            `;
+            disp.innerHTML = '';
+            const v = document.createElement('div');
+            v.className = 'coord-value';
+            v.textContent = `${dmsLat} | ${dmsLng}`;
+            const m = document.createElement('div');
+            m.className = 'coord-meta';
+            m.style.fontWeight = '600';
+            m.style.color = prec <= 15 ? 'var(--success)' : (prec <= 30 ? 'var(--warning)' : 'var(--danger)');
+            m.textContent = `Precisión estimada: ±${prec} m ${prec <= 15 ? '(Óptima)' : '(Esperando mejor señal...)'}`;
+            disp.appendChild(v);
+            disp.appendChild(m);
           }
 
           if (prec <= 15) {
@@ -940,10 +1996,15 @@
         guardarActual();
         const disp = document.getElementById(`display_${ptoId}`);
         if (disp) {
-          disp.innerHTML = `
-            <div class="coord-value">${lectura.dmsLat} | ${lectura.dmsLng}</div>
-            <div class="coord-meta">Lat: ${lectura.lat}, Lng: ${lectura.lng} (±${lectura.prec} m)</div>
-          `;
+          disp.innerHTML = '';
+          const v = document.createElement('div');
+          v.className = 'coord-value';
+          v.textContent = `${lectura.dmsLat} | ${lectura.dmsLng}`;
+          const m = document.createElement('div');
+          m.className = 'coord-meta';
+          m.textContent = `Lat: ${lectura.lat}, Lng: ${lectura.lng} (±${lectura.prec} m)`;
+          disp.appendChild(v);
+          disp.appendChild(m);
         }
       }
     }
@@ -1016,7 +2077,7 @@
         document.getElementById('save-status').textContent = 'Guardado';
       } catch (e) {
         if (e.name === 'QuotaExceededError') {
-          alert('Atención: Almacenamiento local saturado. Exporta el relevamiento a JSON y vacía registros anteriores.');
+          alert('PELIGRO: Capacidad de almacenamiento agotada. Descarga inmediatamente el relevamiento en JSON.');
         }
         document.getElementById('save-status').textContent = 'Error almacenamiento';
       }
@@ -1076,7 +2137,10 @@
       const items = Object.values(catalogo);
 
       if (items.length === 0) {
-        cont.innerHTML = '<div style="text-align:center; padding:16px; color:var(--text-muted);">Sin relevamientos guardados aún.</div>';
+        const vacio = document.createElement('div');
+        vacio.style.cssText = 'text-align:center; padding:16px; color:var(--text-muted);';
+        vacio.textContent = 'Sin relevamientos guardados aún.';
+        cont.appendChild(vacio);
         return;
       }
 
@@ -1084,32 +2148,67 @@
 
       items.forEach(item => {
         const esActivo = item.id === activeId;
-        const totalPuntos = item.puntos ? item.puntos.length : 0;
+        const totalPuntos = Array.isArray(item.puntos) ? item.puntos.length : 0;
         let totalFotos = 0;
-        if (item.puntos) {
-          item.puntos.forEach(p => totalFotos += (p.fotos ? p.fotos.length : 0));
+        if (Array.isArray(item.puntos)) {
+          item.puntos.forEach(p => {
+            if (Array.isArray(p.fotos)) totalFotos += p.fotos.length;
+          });
         }
 
         const row = document.createElement('div');
         row.className = 'list-entry';
         if (esActivo) row.style.borderColor = 'var(--accent)';
 
-        row.innerHTML = `
-          <div class="entry-main-info" onclick="cargarPlanilla('${item.id}')">
-            <div class="entry-title">${esActivo ? '<span style="color:var(--accent);">● </span>' : ''}${item.titulo}</div>
-            <div class="entry-meta">📅 ${item.fecha} | 🕒 ${item.ultimaModif} | 📍 ${totalPuntos} puntos | 📷 ${totalFotos} fotos</div>
-          </div>
-          <div class="entry-actions">
-            <button type="button" class="btn-accent" style="padding:4px 8px; font-size:11.5px;" onclick="cargarPlanilla('${item.id}')">${esActivo ? 'Ver' : 'Abrir'}</button>
-            <button type="button" class="btn-danger" style="padding:4px 8px; font-size:11.5px;" onclick="eliminarRelevamiento('${item.id}', '${item.titulo.replace(/'/g, "\\'")}')">🗑️</button>
-          </div>
-        `;
+        const info = document.createElement('div');
+        info.className = 'entry-main-info';
+        info.onclick = () => cargarPlanilla(item.id);
+
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'entry-title';
+        if (esActivo) {
+          const dot = document.createElement('span');
+          dot.style.color = 'var(--accent)';
+          dot.textContent = '● ';
+          titleDiv.appendChild(dot);
+        }
+        titleDiv.appendChild(document.createTextNode(item.titulo || 'Sin título'));
+
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'entry-meta';
+        metaDiv.textContent = `📅 ${item.fecha || ''} | 🕒 ${item.ultimaModif || ''} | 📍 ${totalPuntos} puntos | 📷 ${totalFotos} fotos`;
+
+        info.appendChild(titleDiv);
+        info.appendChild(metaDiv);
+
+        const actions = document.createElement('div');
+        actions.className = 'entry-actions';
+
+        const btnAbrir = document.createElement('button');
+        btnAbrir.type = 'button';
+        btnAbrir.className = 'btn-accent';
+        btnAbrir.style.cssText = 'padding:4px 8px; font-size:11.5px;';
+        btnAbrir.textContent = esActivo ? 'Ver' : 'Abrir';
+        btnAbrir.onclick = () => cargarPlanilla(item.id);
+
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.className = 'btn-danger';
+        btnDel.style.cssText = 'padding:4px 8px; font-size:11.5px;';
+        btnDel.textContent = '🗑️';
+        btnDel.onclick = () => eliminarRelevamiento(item.id, item.titulo);
+
+        actions.appendChild(btnAbrir);
+        actions.appendChild(btnDel);
+
+        row.appendChild(info);
+        row.appendChild(actions);
         cont.appendChild(row);
       });
     }
 
     function exportarJSON() {
-      const safe = planillaActual.titulo.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safe = (planillaActual.titulo || 'relevamiento').replace(/[^a-zA-Z0-9_-]/g, '_');
       const blob = new Blob([JSON.stringify(planillaActual, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -1121,7 +2220,7 @@
       const features = [];
 
       planillaActual.puntos.forEach((pto, idx) => {
-        if (pto.coords && pto.coords.lat !== null && pto.coords.lng !== null) {
+        if (pto.coords && typeof pto.coords.lat === 'number' && typeof pto.coords.lng === 'number') {
           features.push({
             type: "Feature",
             geometry: {
@@ -1130,13 +2229,13 @@
             },
             properties: {
               indice: idx + 1,
-              nombre: pto.nombre,
-              posgar_lat_dms: pto.coords.dmsLat,
-              posgar_lng_dms: pto.coords.dmsLng,
-              precision_m: pto.coords.prec,
+              nombre: pto.nombre || '',
+              posgar_lat_dms: pto.coords.dmsLat || '',
+              posgar_lng_dms: pto.coords.dmsLng || '',
+              precision_m: pto.coords.prec || 0,
               notas: pto.notas || '',
-              cantidad_fotos: pto.fotos ? pto.fotos.length : 0,
-              relevamiento: planillaActual.titulo,
+              cantidad_fotos: Array.isArray(pto.fotos) ? pto.fotos.length : 0,
+              relevamiento: planillaActual.titulo || '',
               operador: planillaActual.operador || '',
               fecha: planillaActual.fecha || ''
             }
@@ -1151,7 +2250,7 @@
 
       const geojsonObj = {
         type: "FeatureCollection",
-        name: planillaActual.titulo,
+        name: planillaActual.titulo || 'Relevamiento',
         crs: {
           type: "name",
           properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" }
@@ -1159,7 +2258,7 @@
         features: features
       };
 
-      const safe = planillaActual.titulo.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safe = (planillaActual.titulo || 'relevamiento').replace(/[^a-zA-Z0-9_-]/g, '_');
       const blob = new Blob([JSON.stringify(geojsonObj, null, 2)], { type: 'application/geo+json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -1167,20 +2266,59 @@
       a.click();
     }
 
+    // MITIGACIÓN DE SEGURIDAD: Validación estricta de esquema antes de persistir
+    function validarEstructuraJSON(obj) {
+      if (typeof obj !== 'object' || obj === null) return false;
+      if (!Array.isArray(obj.puntos)) return false;
+      return true;
+    }
+
     function importarArchivo(event) {
       const file = event.target.files[0];
       if (!file) return;
+
       const reader = new FileReader();
       reader.onload = function(e) {
         try {
           const item = JSON.parse(e.target.result);
-          if (!item.id) item.id = 'rel_' + Date.now();
-          catalogo[item.id] = item;
+          if (!validarEstructuraJSON(item)) {
+            alert('El archivo no cumple con el esquema estructural de un relevamiento.');
+            return;
+          }
+
+          // Sanitizar y forzar id único
+          const safeId = 'rel_' + Date.now();
+          item.id = safeId;
+          item.titulo = String(item.titulo || 'Relevamiento Importado');
+          item.lugar = String(item.lugar || '');
+          item.operador = String(item.operador || '');
+          item.observaciones = String(item.observaciones || '');
+
+          // Sanitizar array de puntos
+          item.puntos = item.puntos.map((pto, idx) => ({
+            id: 'pto_' + Date.now() + '_' + idx,
+            nombre: String(pto.nombre || `Punto ${idx + 1}`),
+            coords: pto.coords && typeof pto.coords === 'object' ? {
+              lat: typeof pto.coords.lat === 'number' ? pto.coords.lat : null,
+              lng: typeof pto.coords.lng === 'number' ? pto.coords.lng : null,
+              prec: typeof pto.coords.prec === 'number' ? pto.coords.prec : null,
+              dmsLat: String(pto.coords.dmsLat || ''),
+              dmsLng: String(pto.coords.dmsLng || '')
+            } : { lat: null, lng: null, prec: null, dmsLat: '', dmsLng: '' },
+            notas: String(pto.notas || ''),
+            fotos: Array.isArray(pto.fotos) ? pto.fotos.filter(f => sanitizarDataUrl(f.dataUrl)).map(f => ({
+              id: 'foto_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              dataUrl: f.dataUrl,
+              desc: String(f.desc || '')
+            })) : []
+          }));
+
+          catalogo[safeId] = item;
           localStorage.setItem(STORAGE_KEY_LIST, JSON.stringify(catalogo));
-          cargarPlanilla(item.id);
-          alert('Relevamiento importado correctamente.');
+          cargarPlanilla(safeId);
+          alert('Relevamiento importado y sanitizado correctamente.');
         } catch (err) {
-          alert('El archivo no tiene un formato JSON válido.');
+          alert('Error: El archivo no es un JSON válido.');
         }
       };
       reader.readAsText(file);
