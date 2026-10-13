@@ -92,6 +92,8 @@
     .btn-purple:hover { background: #6d28d9; }
     .btn-secondary { background: #fff; color: var(--text); border-color: var(--border); }
     .btn-secondary:hover { background: #f1f5f9; }
+    .btn-warning { background: #fffbeb; color: var(--amber); border-color: #fde68a; }
+    .btn-warning:hover { background: #fef3c7; }
     .btn-danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
     .btn-danger:hover { background: #fee2e2; }
 
@@ -125,7 +127,6 @@
     }
     .grid { display: grid; gap: 12px; }
     .grid-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
     .field { display: flex; flex-direction: column; }
     label { font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 5px; }
     .help-text { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
@@ -215,7 +216,7 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 13px;
       background: #ffffff;
-      padding: 7px 10px;
+      padding: 8px 12px;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
       color: #0f172a;
@@ -396,7 +397,7 @@
       <div class="grid grid-2">
         <div class="field">
           <label for="operador_responsable">Operador / Inspector Responsable:</label>
-          <input type="text" id="operador_responsable" placeholder="Ej: Federico Musa" oninput="guardarActual()">
+          <input type="text" id="operador_responsable" placeholder="Ej: Inspector de Campo" oninput="guardarActual()">
         </div>
         <div class="field">
           <label for="obs_generales">Observaciones Generales de la Inspección:</label>
@@ -406,9 +407,7 @@
     </div>
 
     <!-- Contenedor Dinámico de Puntos Inspeccionados -->
-    <div id="puntosContainer">
-      <!-- Se agregan dinámicamente -->
-    </div>
+    <div id="puntosContainer"></div>
 
     <!-- Botón para añadir nuevo punto -->
     <div style="text-align: center; margin: 24px 0;" class="no-print">
@@ -446,8 +445,13 @@
       observaciones: '',
       ultimaModif: '',
       timestamp: 0,
-      puntos: [] // Array de { id, nombre, coords: { lat, lng, prec, dmsLat, dmsLng }, notas, fotos: [ { id, dataUrl, desc } ] }
+      puntos: []
     };
+
+    // Control de tracking GPS activo
+    let gpsWatcherId = null;
+    let ptoRastreadoId = null;
+    let ultimaLecturaTemp = null;
 
     function inicializar() {
       try {
@@ -477,7 +481,7 @@
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())} hs`;
     }
 
-    // Conversión a Coordenadas Geográficas Sexagesimales (GMS) - Marco POSGAR 07
+    // Conversión a Coordenadas Geográficas Sexagesimales (GMS) - Marco POSGAR 07 / WGS84
     function convertirADMS(val, esLat) {
       if (isNaN(val) || val === null || val === '') return '';
       const abs = Math.abs(val);
@@ -485,12 +489,7 @@
       const minTotales = (abs - grados) * 60;
       const minutos = Math.floor(minTotales);
       const segundos = ((minTotales - minutos) * 60).toFixed(2);
-      let hemisferio = '';
-      if (esLat) {
-        hemisferio = val >= 0 ? 'N' : 'S';
-      } else {
-        hemisferio = val >= 0 ? 'E' : 'O';
-      }
+      const hemisferio = esLat ? (val >= 0 ? 'N' : 'S') : (val >= 0 ? 'E' : 'O');
       return `${grados}° ${minutos}' ${segundos}" ${hemisferio}`;
     }
 
@@ -499,11 +498,7 @@
       const now = new Date();
       const ts = obtenerTimestampLegible(now);
 
-      if (lugar !== '') {
-        planillaActual.titulo = `relevamiento --- ${lugar}`;
-      } else {
-        planillaActual.titulo = `relevamiento --- (${ts})`;
-      }
+      planillaActual.titulo = lugar !== '' ? `relevamiento --- ${lugar}` : `relevamiento --- (${ts})`;
       document.getElementById('bannerTituloRelevamiento').textContent = planillaActual.titulo;
       guardarActual();
     }
@@ -512,6 +507,7 @@
       if (confirmar && !confirm('¿Deseas iniciar un nuevo relevamiento en blanco? El actual quedará guardado.')) {
         return;
       }
+      detenerRastreoGPS();
       const now = new Date();
       activeId = 'rel_' + Date.now();
       localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
@@ -525,11 +521,8 @@
         observaciones: '',
         ultimaModif: obtenerTimestampLegible(now),
         timestamp: now.getTime(),
-        puntos: []
+        puntos: [crearEstructuraPunto(1)]
       };
-
-      // Agregar punto 1 por defecto
-      planillaActual.puntos.push(crearEstructuraPunto(1));
 
       poblarUIPlanilla();
       guardarActual();
@@ -553,7 +546,6 @@
       renderizarPuntos();
       guardarActual();
 
-      // Scroll hacia el nuevo punto
       setTimeout(() => {
         const el = document.getElementById(`card_${nuevo.id}`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -562,6 +554,7 @@
 
     function eliminarPunto(puntoId, nombrePunto) {
       if (confirm(`¿Eliminar definitivamente "${nombrePunto}" con todas sus fotos y coordenadas?`)) {
+        if (ptoRastreadoId === puntoId) detenerRastreoGPS();
         planillaActual.puntos = planillaActual.puntos.filter(p => p.id !== puntoId);
         renderizarPuntos();
         guardarActual();
@@ -602,7 +595,7 @@
               <span class="punto-badge"># ${idx + 1}</span>
               <input type="text" class="punto-name-input" value="${pto.nombre}" placeholder="Nombre del punto..." oninput="actualizarNombrePunto('${pto.id}', this.value)">
             </div>
-            <button type="button" class="btn-danger btn-sm no-print" onclick="eliminarPunto('${pto.id}', '${pto.nombre.replace(/'/g, "\'")}')">🗑️ Quitar Punto</button>
+            <button type="button" class="btn-danger btn-sm no-print" onclick="eliminarPunto('${pto.id}', '${pto.nombre.replace(/'/g, "\\'")}')">🗑️ Quitar Punto</button>
           </div>
 
           <!-- Módulo POSGAR Geográficas -->
@@ -612,11 +605,13 @@
                 <span>🛰️</span>
                 <span>Coordenadas POSGAR Geográficas (WGS84 / GMS)</span>
               </div>
-              <button type="button" class="btn-success no-print" style="padding: 6px 12px; font-size:12px;" onclick="capturarGPSPunto('${pto.id}')">
-                📍 Fijar GPS de este Punto
-              </button>
+              <div id="gps_controls_${pto.id}" class="no-print" style="display:flex; gap:6px;">
+                <button type="button" class="btn-success" style="padding: 6px 12px; font-size:12px;" onclick="iniciarCapturaGPS('${pto.id}')">
+                  📍 Sincronizar GPS
+                </button>
+              </div>
             </div>
-            <div class="coord-display">
+            <div id="display_${pto.id}" class="coord-display">
               <strong>${dmsTexto}</strong>
               <div style="font-size:11.5px; color:#475569; margin-top:2px;">${decTexto}</div>
             </div>
@@ -632,24 +627,21 @@
           <div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
               <label style="font-size:13px; font-weight:700; color:#1e293b; margin:0;">
-                📷 Registro Fotográfico del Punto (${pto.fotos.length} fotos asociadas a esta coordenada)
+                📷 Registro Fotográfico (${pto.fotos.length} fotos)
               </label>
               <div class="no-print" style="display:flex; gap:6px;">
                 <button type="button" class="btn-primary" style="padding: 6px 12px; font-size:12px;" onclick="document.getElementById('input_cam_${pto.id}').click()">
                   📸 Tomar Foto
                 </button>
                 <button type="button" class="btn-secondary" style="padding: 6px 12px; font-size:12px;" onclick="document.getElementById('input_mult_${pto.id}').click()">
-                  🖼️ Galería (Múltiples)
+                  🖼️ Galería
                 </button>
               </div>
-              <!-- Inputs ocultos: uno para cámara directa y otro para seleccionar varias juntas de la galería -->
               <input type="file" id="input_cam_${pto.id}" accept="image/*" capture="environment" style="display:none;" onchange="procesarFotosPunto(event, '${pto.id}')">
               <input type="file" id="input_mult_${pto.id}" accept="image/*" multiple style="display:none;" onchange="procesarFotosPunto(event, '${pto.id}')">
             </div>
 
-            <div id="mosaico_${pto.id}" class="photo-mosaic">
-              <!-- Miniaturas de fotos -->
-            </div>
+            <div id="mosaico_${pto.id}" class="photo-mosaic"></div>
           </div>
         `;
         container.appendChild(puntoEl);
@@ -706,127 +698,217 @@
       }
     }
 
-    // Captura satelital offline independiente por cada punto
-    function capturarGPSPunto(ptoId) {
+    // GESTIÓN DE GEOLOCALIZACIÓN OPTIMIZADA PARA CAMPO
+    function detenerRastreoGPS() {
+      if (gpsWatcherId !== null) {
+        navigator.geolocation.clearWatch(gpsWatcherId);
+        gpsWatcherId = null;
+      }
+      if (ptoRastreadoId) {
+        const ctrl = document.getElementById(`gps_controls_${ptoRastreadoId}`);
+        if (ctrl) {
+          ctrl.innerHTML = `
+            <button type="button" class="btn-success" style="padding: 6px 12px; font-size:12px;" onclick="iniciarCapturaGPS('${ptoRastreadoId}')">
+              📍 Sincronizar GPS
+            </button>
+          `;
+        }
+      }
+      ptoRastreadoId = null;
+      ultimaLecturaTemp = null;
+      document.getElementById('save-status').textContent = 'Listo';
+    }
+
+    function iniciarCapturaGPS(ptoId) {
       if (!('geolocation' in navigator)) {
-        alert('Este dispositivo no soporta geolocalización satelital.');
+        alert('Este dispositivo o navegador no soporta geolocalización satelital.');
         return;
       }
 
+      // Detener cualquier rastreo previo
+      detenerRastreoGPS();
+
+      ptoRastreadoId = ptoId;
       const status = document.getElementById('save-status');
-      status.textContent = 'Buscando satélites...';
+      status.textContent = 'Adquiriendo satélites...';
 
-      navigator.geolocation.getCurrentPosition(
+      const displayEl = document.getElementById(`display_${ptoId}`);
+      const ctrlEl = document.getElementById(`gps_controls_${ptoId}`);
+
+      if (displayEl) {
+        displayEl.innerHTML = `
+          <strong style="color: var(--amber);">⏳ Conectando receptor GNSS...</strong>
+          <div style="font-size:11.5px; color:#64748b; margin-top:2px;">Buscando constelación satelital a cielo abierto.</div>
+        `;
+      }
+
+      if (ctrlEl) {
+        ctrlEl.innerHTML = `
+          <button type="button" id="btn_forzar_${ptoId}" class="btn-warning" style="padding: 6px 12px; font-size:12px; display:none;" onclick="fijarLecturaManual('${ptoId}')">
+            ⚠️ Aceptar precisión actual
+          </button>
+          <button type="button" class="btn-danger" style="padding: 6px 12px; font-size:12px;" onclick="detenerRastreoGPS()">
+            ✕ Cancelar
+          </button>
+        `;
+      }
+
+      const opcionesGPS = {
+        enableHighAccuracy: true,
+        timeout: 60000,           // 60s para frío offline
+        maximumAge: 0
+      };
+
+      gpsWatcherId = navigator.geolocation.watchPosition(
         (pos) => {
-          const lat = parseFloat(pos.coords.latitude.toFixed(6));
-          const lng = parseFloat(pos.coords.longitude.toFixed(6));
+          const lat = Number(pos.coords.latitude.toFixed(7));
+          const lng = Number(pos.coords.longitude.toFixed(7));
           const prec = Math.round(pos.coords.accuracy);
-
           const dmsLat = convertirADMS(lat, true);
           const dmsLng = convertirADMS(lng, false);
 
-          const p = planillaActual.puntos.find(x => x.id === ptoId);
-          if (p) {
-            p.coords = { lat, lng, prec, dmsLat, dmsLng };
-            renderizarPuntos();
-            guardarActual();
-            alert(`¡Coordenadas satelitales fijadas para "${p.nombre}"!
-${dmsLat} | ${dmsLng}
-Precisión: ±${prec} m`);
+          ultimaLecturaTemp = { lat, lng, prec, dmsLat, dmsLng };
+
+          // Mostrar botón de aceptar manual si ya tenemos alguna coordenada
+          const btnForzar = document.getElementById(`btn_forzar_${ptoId}`);
+          if (btnForzar) btnForzar.style.display = 'inline-flex';
+
+          const disp = document.getElementById(`display_${ptoId}`);
+          if (disp) {
+            const colorAcc = prec <= 15 ? 'var(--emerald)' : (prec <= 30 ? 'var(--amber)' : 'var(--danger)');
+            disp.innerHTML = `
+              <strong>${dmsLat} | ${dmsLng}</strong>
+              <div style="font-size:11.5px; color:${colorAcc}; font-weight:700; margin-top:2px;">
+                Precisión GNSS: ±${prec} m ${prec <= 15 ? '✓ (Óptima)' : '(Esperando mejor señal...)'}
+              </div>
+            `;
+          }
+
+          // Si alcanzó precisión de trabajo estándar (<= 15m), consolidar automáticamente
+          if (prec <= 15) {
+            fijarCoordenadaEnPunto(ptoId, ultimaLecturaTemp);
+            detenerRastreoGPS();
+            status.textContent = `Punto fijado (±${prec}m)`;
           }
         },
         (err) => {
-          let m = 'No se pudo obtener posición satelital.';
-          if (err.code === 1) m = 'Permiso de ubicación denegado en el navegador.';
-          else if (err.code === 2) m = 'Sin señal satelital en este punto (estar al aire libre).';
-          else if (err.code === 3) m = 'Tiempo de espera satelital agotado.';
-          alert(m);
-          status.textContent = 'Error satelital';
+          detenerRastreoGPS();
+          status.textContent = 'Error GPS';
+          let msg = 'Error al comunicarse con el chip GPS.';
+          if (err.code === 1) msg = 'Permiso de ubicación denegado. Habilita los permisos del navegador.';
+          if (err.code === 2) msg = 'Ubicación no disponible. Verifica que la ubicación esté encendida en el dispositivo.';
+          if (err.code === 3) msg = 'Tiempo de espera agotado buscando satélites. Acércate a un área despejada.';
+          alert(msg);
         },
-        { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 }
+        opcionesGPS
       );
     }
 
-    // Procesamiento y compresión por lote de fotos en memoria
-    function comprimirFoto(file, callback) {
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const img = new Image();
-        img.onload = function() {
-          const canvas = document.createElement('canvas');
-          const MAX_SIDE = 800; // Calidad técnica optimizada para no saturar memoria
-          let w = img.width;
-          let h = img.height;
-
-          if (w > h) {
-            if (w > MAX_SIDE) { h *= MAX_SIDE / w; w = MAX_SIDE; }
-          } else {
-            if (h > MAX_SIDE) { w *= MAX_SIDE / h; h = MAX_SIDE; }
-          }
-
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-          callback(dataUrl);
-        };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
+    function fijarLecturaManual(ptoId) {
+      if (ultimaLecturaTemp) {
+        fijarCoordenadaEnPunto(ptoId, ultimaLecturaTemp);
+        detenerRastreoGPS();
+        document.getElementById('save-status').textContent = `Fijado manual (±${ultimaLecturaTemp.prec}m)`;
+      }
     }
 
+    function fijarCoordenadaEnPunto(ptoId, lectura) {
+      const p = planillaActual.puntos.find(x => x.id === ptoId);
+      if (p) {
+        p.coords = { ...lectura };
+        guardarActual();
+        const disp = document.getElementById(`display_${ptoId}`);
+        if (disp) {
+          disp.innerHTML = `
+            <strong>${lectura.dmsLat} | ${lectura.dmsLng}</strong>
+            <div style="font-size:11.5px; color:#475569; margin-top:2px;">(Lat: ${lectura.lat}, Lng: ${lectura.lng} | Prec: ±${lectura.prec}m)</div>
+          `;
+        }
+      }
+    }
+
+    // PROCESAMIENTO Y COMPRESIÓN DE FOTOS PARA CONTROLAR LOCALSTORAGE
     function procesarFotosPunto(event, ptoId) {
-      const files = Array.from(event.target.files);
-      if (files.length === 0) return;
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
 
       const p = planillaActual.puntos.find(x => x.id === ptoId);
       if (!p) return;
 
-      let procesadas = 0;
-      files.forEach(file => {
-        comprimirFoto(file, (dataUrl) => {
-          p.fotos.push({
-            id: 'f_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-            dataUrl: dataUrl,
-            desc: ''
-          });
-          procesadas++;
-          if (procesadas === files.length) {
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            // Máximo 1000px: balance óptimo entre detalle técnico e integridad de LocalStorage
+            const MAX_DIM = 1000;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height && width > MAX_DIM) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else if (height > MAX_DIM) {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Calidad 0.6 (~80-120 KB por foto)
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+            p.fotos.push({
+              id: 'foto_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              dataUrl: compressedDataUrl,
+              desc: ''
+            });
+
             renderizarMosaicoFotos(p);
             guardarActual();
-          }
-        });
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
       });
+
       event.target.value = '';
     }
 
-    // Persistencia LocalStorage
+    // PERSISTENCIA LOCALSTORAGE
     function guardarActual() {
       if (!activeId) return;
 
       const now = new Date();
-      planillaActual.lugar = document.getElementById('lugar_nombre').value.trim();
+      planillaActual.lugar = document.getElementById('lugar_nombre').value;
       planillaActual.fecha = document.getElementById('fecha_relevamiento').value;
-      planillaActual.operador = document.getElementById('operador_responsable').value.trim();
-      planillaActual.observaciones = document.getElementById('obs_generales').value.trim();
+      planillaActual.operador = document.getElementById('operador_responsable').value;
+      planillaActual.observaciones = document.getElementById('obs_generales').value;
       planillaActual.ultimaModif = obtenerTimestampLegible(now);
-      planillaActual.timestamp = now.getTime();
+
+      catalogo[activeId] = planillaActual;
 
       try {
-        catalogo[activeId] = planillaActual;
         localStorage.setItem(STORAGE_KEY_LIST, JSON.stringify(catalogo));
         localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
-        document.getElementById('save-status').textContent = `Autoguardado: ${now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}`;
-      } catch (err) {
-        document.getElementById('save-status').textContent = 'Memoria llena: descargue JSON';
+        document.getElementById('bannerTimestamp').textContent = `Guardado: ${planillaActual.ultimaModif}`;
+        document.getElementById('save-status').textContent = 'Guardado';
+      } catch (e) {
+        if (e.name === 'QuotaExceededError') {
+          alert('Atención: Memoria local saturada. Descarga el relevamiento en JSON y limpia registros antiguos.');
+        }
+        document.getElementById('save-status').textContent = 'Error al guardar';
       }
 
-      document.getElementById('bannerTimestamp').textContent = `Guardado: ${planillaActual.ultimaModif}`;
       actualizarContadorBoton();
     }
 
     function cargarPlanilla(id) {
+      detenerRastreoGPS();
       const p = catalogo[id];
       if (!p) return;
 
@@ -840,6 +922,7 @@ Precisión: ±${prec} m`);
 
     function eliminarRelevamiento(id, titulo) {
       if (confirm(`¿Eliminar definitivamente "${titulo}"?`)) {
+        detenerRastreoGPS();
         delete catalogo[id];
         localStorage.setItem(STORAGE_KEY_LIST, JSON.stringify(catalogo));
         actualizarContadorBoton();
@@ -855,7 +938,10 @@ Precisión: ±${prec} m`);
     }
 
     function actualizarContadorBoton() {
-      document.getElementById('total-count-btn').textContent = Object.keys(catalogo).length;
+      const btnCount = document.getElementById('total-count-btn');
+      if (btnCount) {
+        btnCount.textContent = Object.keys(catalogo).length;
+      }
     }
 
     function abrirModalListado() {
@@ -900,14 +986,14 @@ Precisión: ±${prec} m`);
           </div>
           <div class="entry-actions">
             <button type="button" class="btn-primary btn-sm" onclick="cargarPlanilla('${item.id}')">${esActivo ? 'Ver' : 'Abrir'}</button>
-            <button type="button" class="btn-danger btn-sm" onclick="eliminarRelevamiento('${item.id}', '${item.titulo.replace(/'/g, "\'")}')">🗑️</button>
+            <button type="button" class="btn-danger btn-sm" onclick="eliminarRelevamiento('${item.id}', '${item.titulo.replace(/'/g, "\\'")}')">🗑️</button>
           </div>
         `;
         cont.appendChild(row);
       });
     }
 
-    // Exportación estándar JSON (Backup y portabilidad)
+    // EXPORTACIÓN JSON Y GEOJSON
     function exportarJSON() {
       const safe = planillaActual.titulo.replace(/[^a-zA-Z0-9_-]/g, '_');
       const blob = new Blob([JSON.stringify(planillaActual, null, 2)], { type: 'application/json' });
@@ -917,7 +1003,6 @@ Precisión: ±${prec} m`);
       a.click();
     }
 
-    // Exportación directa a GeoJSON (Compatible con QGIS, ArcGIS, Google Earth)
     function exportarGeoJSON() {
       const features = [];
 
@@ -927,7 +1012,7 @@ Precisión: ±${prec} m`);
             type: "Feature",
             geometry: {
               type: "Point",
-              coordinates: [pto.coords.lng, pto.coords.lat] // GeoJSON va en orden [Longitud, Latitud]
+              coordinates: [pto.coords.lng, pto.coords.lat] // GeoJSON estándar [Lng, Lat]
             },
             properties: {
               indice: idx + 1,
@@ -946,7 +1031,7 @@ Precisión: ±${prec} m`);
       });
 
       if (features.length === 0) {
-        alert('Ningún punto tiene coordenadas satelitales capturadas todavía. Fija el GPS en al menos un punto para generar el archivo GeoJSON.');
+        alert('Ningún punto tiene coordenadas satelitales capturadas todavía.');
         return;
       }
 
@@ -955,7 +1040,7 @@ Precisión: ±${prec} m`);
         name: planillaActual.titulo,
         crs: {
           type: "name",
-          properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" } // POSGAR / WGS84 Geográficas
+          properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" }
         },
         features: features
       };
@@ -979,7 +1064,7 @@ Precisión: ±${prec} m`);
           catalogo[item.id] = item;
           localStorage.setItem(STORAGE_KEY_LIST, JSON.stringify(catalogo));
           cargarPlanilla(item.id);
-          alert('¡Relevamiento importado y cargado en pantalla con éxito!');
+          alert('¡Relevamiento importado y cargado con éxito!');
         } catch (err) {
           alert('Error al leer el archivo JSON.');
         }
